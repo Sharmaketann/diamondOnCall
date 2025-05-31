@@ -61,12 +61,38 @@ app.post("/purchase", (req, res) => {
       })
     }
 
+    // Check stock availability
+    if (quantity > product.stock) {
+      return res.status(400).json({
+        success: false,
+        message: `Insufficient stock. Available: ${product.stock}, Requested: ${quantity}`,
+      })
+    }
+
+    // Calculate pricing
+    const basePrice = product.price * quantity
+    const markupAmount = (basePrice * MARKUP_PERCENTAGE) / 100
+    const priceWithMarkup = basePrice + markupAmount
+    const discountAmount = (priceWithMarkup * discount) / 100
+    const finalPrice = priceWithMarkup - discountAmount
+
+    // Update stock
+    product.stock -= quantity
+
     // Prepare response
     const purchaseDetails = {
       productId: product.id,
       productName: product.name,
       unitPrice: product.price,
       quantity: quantity,
+      basePrice: parseFloat(basePrice.toFixed(2)),
+      markupPercentage: MARKUP_PERCENTAGE,
+      markupAmount: parseFloat(markupAmount.toFixed(2)),
+      priceWithMarkup: parseFloat(priceWithMarkup.toFixed(2)),
+      discountPercentage: discount,
+      discountAmount: parseFloat(discountAmount.toFixed(2)),
+      finalPrice: parseFloat(finalPrice.toFixed(2)),
+      remainingStock: product.stock,
     }
 
     res.json({
