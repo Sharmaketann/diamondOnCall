@@ -2,6 +2,7 @@ const express = require("express")
 const cors = require("cors")
 const app = express()
 const productsRouter = require("./routes/products")
+const products = require("../backend/data/products")
 // Middleware
 app.use(cors())
 app.use(express.json())
@@ -18,6 +19,68 @@ const DEFAULT_DISCOUNT_PERCENTAGE = 10 // Default 10% discount
 app.use((req, res, next) => {
   console.log(`Incoming Request: ${req.method} ${req.originalUrl}`)
   next()
+})
+
+// POST /purchase - Process purchase
+app.post("/purchase", (req, res) => {
+  try {
+    const {
+      productId,
+      quantity,
+      discount = DEFAULT_DISCOUNT_PERCENTAGE,
+    } = req.body
+
+    // Validation
+    if (!productId || !quantity) {
+      return res.status(400).json({
+        success: false,
+        message: "Product ID and quantity are required",
+      })
+    }
+
+    if (quantity <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Quantity must be greater than 0",
+      })
+    }
+
+    if (discount < 0 || discount > 100) {
+      return res.status(400).json({
+        success: false,
+        message: "Discount must be between 0 and 100",
+      })
+    }
+
+    // Find product
+    const product = products.find((p) => p.id === productId)
+    if (!product) {
+      return res.status(404).json({
+        success: false,
+        message: "Product not found",
+      })
+    }
+
+    // Prepare response
+    const purchaseDetails = {
+      productId: product.id,
+      productName: product.name,
+      unitPrice: product.price,
+      quantity: quantity,
+    }
+
+    res.json({
+      success: true,
+      message: "Purchase completed successfully",
+      data: purchaseDetails,
+    })
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Purchase failed",
+      error: error.message,
+    })
+  }
 })
 
 // Error handling middleware
