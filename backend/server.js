@@ -3,6 +3,7 @@ const cors = require("cors")
 const app = express()
 const productsRouter = require("./routes/products")
 const purchaseRouter = require("./routes/purchase")
+const salesRouter = require("./routes/sales")
 const logger = require("./middleware/logger")
 const errorHandler = require("./middleware/errorHandler")
 
@@ -14,6 +15,7 @@ app.use(logger) // Log incoming requests
 // Routes
 app.use("/products", productsRouter) // // Mount products routes
 app.use("/purchase", purchaseRouter) // Mount purchase routes
+app.use("/sales", salesRouter) // Mount sales routes
 
 app.use((req, res, next) => {
   console.log(`Incoming Request: ${req.method} ${req.originalUrl}`)

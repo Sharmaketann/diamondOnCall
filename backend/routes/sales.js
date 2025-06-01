@@ -1,7 +1,10 @@
 const express = require("express")
 const router = express.Router()
 const products = require("../data/products")
-const { DEFAULT_DISCOUNT_PERCENTAGE } = require("../config/constant")
+const {
+  MARKUP_PERCENTAGE,
+  DEFAULT_DISCOUNT_PERCENTAGE,
+} = require("../config/constant")
 
 // POST /purchase - Process purchase
 router.post("/", (req, res) => {
@@ -9,7 +12,7 @@ router.post("/", (req, res) => {
     const {
       productId,
       quantity,
-      //   discount = DEFAULT_DISCOUNT_PERCENTAGE,
+      discount = DEFAULT_DISCOUNT_PERCENTAGE,
     } = req.body
 
     // Validation
@@ -27,12 +30,12 @@ router.post("/", (req, res) => {
       })
     }
 
-    // if (discount < 0 || discount > 100) {
-    //   return res.status(400).json({
-    //     success: false,
-    //     message: "Discount must be between 0 and 100",
-    //   })
-    // }
+    if (discount < 0 || discount > 100) {
+      return res.status(400).json({
+        success: false,
+        message: "Discount must be between 0 and 100",
+      })
+    }
 
     // Find product
     const product = products.find((p) => p.id === productId)
@@ -43,27 +46,23 @@ router.post("/", (req, res) => {
       })
     }
 
-    // more than equal to 100 - 5%
-    // more than equal to 500 -10%
-    // more than equal to 1000 -20%
-    let discount = 0
-
-    if (quantity >= 100 && quantity < 500) {
-      discount = 5
-    } else if (quantity >= 500 && quantity < 1000) {
-      discount = 10
-    } else if (quantity >= 1000) {
-      discount = 20
+    // Check stock availability
+    if (quantity > product.stock) {
+      return res.status(400).json({
+        success: false,
+        message: `Insufficient stock. Available: ${product.stock}, Requested: ${quantity}`,
+      })
     }
 
     // Calculate pricing
     const basePrice = product.price * quantity
-    const productPrice = product.price
-    const discountAmount = ((discount * product.price) / 100) * quantity
-    const finalPrice = basePrice
+    const markupAmount = (basePrice * MARKUP_PERCENTAGE) / 100
+    const priceWithMarkup = basePrice + markupAmount
+    const discountAmount = (priceWithMarkup * discount) / 100
+    const finalPrice = priceWithMarkup - discountAmount
 
     // Update stock
-    product.stock += +quantity
+    product.stock -= quantity
 
     // Prepare response
     const purchaseDetails = {
@@ -72,26 +71,24 @@ router.post("/", (req, res) => {
       unitPrice: product.price,
       quantity: quantity,
       basePrice: parseFloat(basePrice.toFixed(2)),
+      markupPercentage: MARKUP_PERCENTAGE,
+      markupAmount: parseFloat(markupAmount.toFixed(2)),
+      priceWithMarkup: parseFloat(priceWithMarkup.toFixed(2)),
       discountPercentage: discount,
-      discount: ((discount * productPrice) / 100) * quantity,
-      //   discount: discount,
-      withoutDiscountFinalPrice: parseFloat(finalPrice.toFixed(2)),
-      withDiscountUnitPrice: Math.abs(
-        (productPrice / 100) * discount * quantity - basePrice
-      ),
       discountAmount: parseFloat(discountAmount.toFixed(2)),
+      finalPrice: parseFloat(finalPrice.toFixed(2)),
       remainingStock: product.stock,
     }
 
     res.json({
       success: true,
-      message: "Purchase completed successfully",
+      message: "Sales completed successfully",
       data: purchaseDetails,
     })
   } catch (error) {
     res.status(500).json({
       success: false,
-      message: "Purchase failed",
+      message: "Sales failed",
       error: error.message,
     })
   }

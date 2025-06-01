@@ -45,7 +45,7 @@ let products = [
     id: "8",
     name: "Bluetooth Speaker",
     price: 95,
-    stock: 14,
+    stock: 1100,
   },
   {
     id: "9",
