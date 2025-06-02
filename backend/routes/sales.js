@@ -54,6 +54,12 @@ router.post("/", (req, res) => {
       })
     }
 
+    const calculateFinalPrice = (basePrice) => {
+      const markup = basePrice * MARKUP_PERCENTAGE
+      const priceWithMarkup = basePrice + markup
+      // const discountAmount = priceWithMarkup * (discount / 100)
+      return priceWithMarkup
+    }
     // Calculate pricing
     const basePrice = product.price * quantity
     const markupAmount = (basePrice * MARKUP_PERCENTAGE) / 100
@@ -76,7 +82,7 @@ router.post("/", (req, res) => {
       priceWithMarkup: parseFloat(priceWithMarkup.toFixed(2)),
       discountPercentage: discount,
       discountAmount: parseFloat(discountAmount.toFixed(2)),
-      finalPrice: parseFloat(finalPrice.toFixed(2)),
+      finalPrice: parseFloat(calculateFinalPrice(basePrice) - discountAmount),
       remainingStock: product.stock,
     }
 

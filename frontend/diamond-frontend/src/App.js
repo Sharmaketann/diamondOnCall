@@ -7,6 +7,9 @@ import {
   Plus,
   AlertCircle,
   CheckCircle,
+  Clock,
+  List,
+  Home,
 } from "lucide-react"
 
 const API_BASE_URL = "http://localhost:3001"
@@ -19,10 +22,12 @@ export default function InventorySystem() {
   const [discount, setDiscount] = useState(10)
   const [purchasing, setPurchasing] = useState(false)
   const [lastPurchase, setLastPurchase] = useState(null)
+  const [currentView, setCurrentView] = useState("inventory") // inventory | orders
+  const [orders, setOrders] = useState([])
 
-  // Fetch products on component mount
   useEffect(() => {
     fetchProducts()
+    loadOrdersFromStorage()
   }, [])
 
   const fetchProducts = async () => {
@@ -30,7 +35,7 @@ export default function InventorySystem() {
       setLoading(true)
       const response = await fetch(`${API_BASE_URL}/products`)
       const result = await response.json()
-
+      console.log("result", result)
       if (result.success) {
         setProducts(result.data)
       } else {
@@ -42,6 +47,39 @@ export default function InventorySystem() {
       )
     } finally {
       setLoading(false)
+    }
+  }
+
+  const loadOrdersFromStorage = () => {
+    try {
+      const savedOrders = JSON.parse(
+        localStorage.getItem("inventory_orders") || "[]"
+      )
+      setOrders(savedOrders)
+    } catch (err) {
+      console.error("Error loading orders from storage:", err)
+    }
+  }
+
+  console.log("localStorage", localStorage.getItem("inventory_orders"))
+
+  const saveOrderToStorage = (orderData) => {
+    try {
+      const savedOrders = JSON.parse(
+        localStorage.getItem("inventory_orders") || "[]"
+      )
+      const newOrder = {
+        id: Date.now().toString(),
+        timestamp: new Date().toISOString(),
+        items: orderData.items,
+        totalAmount: orderData.totalAmount,
+        orderType: orderData.orderType || "sale",
+      }
+      const updatedOrders = [newOrder, ...savedOrders]
+      localStorage.setItem("inventory_orders", JSON.stringify(updatedOrders))
+      setOrders(updatedOrders)
+    } catch (err) {
+      console.error("Error saving order to storage:", err)
     }
   }
 
@@ -77,17 +115,22 @@ export default function InventorySystem() {
   }
 
   const calculateTotal = () => {
-    return Object.entries(cart).reduce((total, [productId, quantity]) => {
+    let total = 0
+    Object.entries(cart).forEach(([productId, quantity]) => {
       const product = products.find((p) => p.id === productId)
-      return total + (product ? product.price * quantity : 0)
-    }, 0)
+      if (product) {
+        total += product.markup * quantity
+      }
+    })
+    const final = total * (1 - discount / 100)
+    return final
   }
 
   const calculateFinalPrice = (basePrice) => {
-    const markup = basePrice * 0.2 // 20% markup
-    const priceWithMarkup = basePrice + markup
-    const discountAmount = priceWithMarkup * (discount / 100)
-    return priceWithMarkup - discountAmount
+    const markup = basePrice
+    // const priceWithMarkup = basePrice + markup
+    // const discountAmount = priceWithMarkup * (discount / 100)
+    return markup
   }
 
   const handlePurchase = async () => {
@@ -100,33 +143,20 @@ export default function InventorySystem() {
     setError("")
 
     try {
-      // Process each item in cart
       const purchases = []
       for (const [productId, quantity] of Object.entries(cart)) {
-        const response = await fetch(`${API_BASE_URL}/purchase`, {
+        const response = await fetch(`${API_BASE_URL}/sales`, {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            productId,
-            quantity,
-            discount,
-          }),
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ productId, quantity, discount }),
         })
-
         const result = await response.json()
-
-        if (!result.success) {
-          throw new Error(result.message)
-        }
-
+        if (!result.success) throw new Error(result.message)
         purchases.push(result.data)
       }
 
-      // Update local product stock
-      setProducts((prevProducts) =>
-        prevProducts.map((product) => {
+      setProducts((prev) =>
+        prev.map((product) => {
           const purchase = purchases.find((p) => p.productId === product.id)
           return purchase
             ? { ...product, stock: purchase.remainingStock }
@@ -134,16 +164,16 @@ export default function InventorySystem() {
         })
       )
 
-      // Calculate total
       const totalAmount = purchases.reduce((sum, p) => sum + p.finalPrice, 0)
 
-      setLastPurchase({
+      const orderData = {
         items: purchases,
         totalAmount: parseFloat(totalAmount.toFixed(2)),
-        timestamp: new Date().toLocaleString(),
-      })
+        orderType: "sale",
+      }
 
-      // Clear cart
+      setLastPurchase({ ...orderData, timestamp: new Date().toLocaleString() })
+      saveOrderToStorage(orderData)
       setCart({})
     } catch (err) {
       setError(err.message || "Purchase failed")
@@ -152,9 +182,80 @@ export default function InventorySystem() {
     }
   }
 
+  const renderOrdersView = () => (
+    <div className="max-w-4xl mx-auto">
+      <h2 className="text-3xl font-bold text-gray-800 mb-6 flex items-center gap-2">
+        <List className="w-6 h-6 text-blue-600" />
+        Purchase Orders
+      </h2>
+
+      {orders.length === 0 ? (
+        <p className="text-gray-600 text-center">No orders found.</p>
+      ) : (
+        <div className="space-y-6">
+          {orders.map((order) => (
+            <div
+              key={order.id}
+              className="bg-white border rounded-lg p-4 shadow-sm"
+            >
+              <div className="flex justify-between items-center mb-2">
+                <p className="text-gray-600 text-sm">
+                  {new Date(order.timestamp).toLocaleString()}
+                </p>
+                <span className="px-2 py-1 text-xs font-semibold rounded-full bg-blue-100 text-blue-800 capitalize">
+                  {order.orderType}
+                </span>
+              </div>
+              <ul className="text-sm text-gray-700 mb-2 space-y-1">
+                {order.items.map((item, index) => (
+                  <li key={index}>
+                    {item.productName} × {item.quantity} = ${item.finalPrice}
+                  </li>
+                ))}
+              </ul>
+              <div className="text-right font-bold text-green-700">
+                Total: ${order.totalAmount}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+
+  const renderHeaderTabs = () => (
+    <div className="flex justify-center gap-4 mb-6">
+      <button
+        className={`px-4 py-2 rounded font-medium ${
+          currentView === "inventory"
+            ? "bg-blue-600 text-white"
+            : "bg-gray-200 text-gray-700"
+        }`}
+        onClick={() => setCurrentView("inventory")}
+      >
+        <Home className="w-4 h-4 inline mr-1" />
+        Inventory
+      </button>
+      <button
+        className={`px-4 py-2 rounded font-medium ${
+          currentView === "orders"
+            ? "bg-blue-600 text-white"
+            : "bg-gray-200 text-gray-700"
+        }`}
+        onClick={() => {
+          loadOrdersFromStorage()
+          setCurrentView("orders")
+        }}
+      >
+        <Clock className="w-4 h-4 inline mr-1" />
+        Orders
+      </button>
+    </div>
+  )
+
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="text-center">
           <Package className="w-12 h-12 text-blue-500 animate-spin mx-auto mb-4" />
           <p className="text-gray-600">Loading products...</p>
@@ -162,241 +263,208 @@ export default function InventorySystem() {
       </div>
     )
   }
+  const calculateSubtotal = () => {
+    let subtotal = 0
+    Object.entries(cart).forEach(([productId, quantity]) => {
+      const product = products.find((p) => p.id === productId)
+      if (product) {
+        subtotal += product.markup * quantity
+      }
+    })
+    return subtotal
+  }
+
+  const calculateDiscountValue = () => {
+    const subtotal = calculateSubtotal()
+    return (subtotal * discount) / 100
+  }
 
   return (
     <div className="min-h-screen bg-gray-50 py-8 px-4">
       <div className="max-w-6xl mx-auto">
         <div className="text-center mb-8">
-          <h1 className="text-4xl font-bold text-gray-800 mb-2 flex items-center justify-center gap-3">
+          <h1 className="text-4xl font-bold text-gray-800 flex items-center justify-center gap-2 mb-2">
             <Package className="w-10 h-10 text-blue-600" />
-            Inventory Sale System
+            Inventory System DOC
           </h1>
-          <p className="text-gray-600">
-            Select products, set quantities, and complete your purchase
-          </p>
+          <p className="text-gray-500">Manage stock, sales, and orders</p>
         </div>
 
+        {renderHeaderTabs()}
+
         {error && (
-          <div className="mb-6 bg-red-50 border border-red-200 rounded-lg p-4 flex items-center gap-3">
-            <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
-            <p className="text-red-700">{error}</p>
+          <div className="mb-6 bg-red-100 text-red-800 p-4 rounded-lg flex items-center gap-2">
+            <AlertCircle className="w-5 h-5" />
+            {error}
           </div>
         )}
 
-        {lastPurchase && (
-          <div className="mb-8 bg-green-50 border border-green-200 rounded-lg p-6">
-            <div className="flex items-center gap-3 mb-4">
-              <CheckCircle className="w-6 h-6 text-green-500" />
-              <h3 className="text-lg font-semibold text-green-800">
-                Purchase Completed!
-              </h3>
-            </div>
-            <div className="grid md:grid-cols-2 gap-4">
-              <div>
-                <h4 className="font-medium text-gray-700 mb-2">
-                  Items Purchased:
-                </h4>
-                {lastPurchase.items.map((item, index) => (
-                  <div key={index} className="text-sm text-gray-600 mb-1">
-                    {item.productName} × {item.quantity} = ${item.finalPrice}
-                  </div>
-                ))}
-              </div>
-              <div className="text-right">
-                <p className="text-2xl font-bold text-green-600">
-                  Total: ${lastPurchase.totalAmount}
-                </p>
-                <p className="text-sm text-gray-500">
-                  {lastPurchase.timestamp}
-                </p>
-              </div>
-            </div>
-          </div>
-        )}
-
-        <div className="grid lg:grid-cols-3 gap-8">
-          {/* Products List */}
-          <div className="lg:col-span-2">
-            <h2 className="text-2xl font-semibold text-gray-800 mb-6">
-              Available Products
-            </h2>
-            <div className="grid md:grid-cols-2 gap-6">
-              {products.map((product) => (
-                <div
-                  key={product.id}
-                  className="bg-white rounded-lg shadow-lg p-6 border border-gray-200"
-                >
-                  <div className="flex justify-between items-start mb-4">
-                    <div>
-                      <h3 className="text-xl font-semibold text-gray-800">
+        {currentView === "orders" ? (
+          renderOrdersView()
+        ) : (
+          <>
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6 mb-8">
+              {products.map((product) => {
+                const qty = cart[product.id] || 0
+                return (
+                  <div
+                    key={product.id}
+                    className="bg-white border rounded-lg p-4 shadow-sm"
+                  >
+                    <div className="flex justify-between items-center mb-2">
+                      <h2 className="text-lg font-semibold text-gray-800">
                         {product.name}
-                      </h3>
-                      <p className="text-2xl font-bold text-blue-600">
-                        ${product.price}
-                      </p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-sm text-gray-500">Stock</p>
-                      <p
-                        className={`text-lg font-semibold ${
-                          product.stock > 5
-                            ? "text-green-600"
-                            : product.stock > 0
-                            ? "text-yellow-600"
-                            : "text-red-600"
+                      </h2>
+                      <span
+                        className={`text-xs font-medium px-2 py-1 rounded-full ${
+                          product.stock > 0
+                            ? "bg-green-100 text-green-700"
+                            : "bg-red-100 text-red-700"
                         }`}
                       >
-                        {product.stock}
-                      </p>
+                        {product.stock > 0 ? "In Stock" : "Out of Stock"}
+                      </span>
                     </div>
-                  </div>
-
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <button
-                        onClick={() => updateQuantity(product.id, -1)}
-                        disabled={!cart[product.id] || cart[product.id] <= 0}
-                        className="w-8 h-8 rounded-full bg-gray-200 hover:bg-gray-300 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
-                      >
-                        <Minus className="w-4 h-4" />
-                      </button>
-                      <input
-                        type="number"
-                        min="0"
-                        max={product.stock}
-                        value={cart[product.id] || 0}
-                        onChange={(e) =>
-                          setQuantity(product.id, e.target.value)
-                        }
-                        className="w-16 text-center border border-gray-300 rounded px-2 py-1"
-                      />
-                      <button
-                        onClick={() => updateQuantity(product.id, 1)}
-                        disabled={
-                          product.stock === 0 ||
-                          (cart[product.id] || 0) >= product.stock
-                        }
-                        className="w-8 h-8 rounded-full bg-gray-200 hover:bg-gray-300 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
-                      >
-                        <Plus className="w-4 h-4" />
-                      </button>
+                    <p className="text-sm text-gray-600 mb-2">
+                      {product.description}
+                    </p>
+                    <div className="flex items-center justify-between mb-4">
+                      <span className="text-blue-600 font-bold">
+                        ${product.markup}
+                      </span>
+                      <span className="text-xs text-gray-500">
+                        Stock: {product.stock}
+                      </span>
                     </div>
 
-                    {cart[product.id] && (
-                      <div className="text-right">
-                        <p className="text-sm text-gray-500">Subtotal</p>
-                        <p className="font-semibold text-gray-800">
-                          ${(product.price * cart[product.id]).toFixed(2)}
-                        </p>
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => updateQuantity(product.id, -1)}
+                          className="px-2 py-1 bg-gray-200 rounded hover:bg-gray-300"
+                        >
+                          <Minus className="w-4 h-4" />
+                        </button>
+                        <input
+                          type="number"
+                          value={qty}
+                          onChange={(e) => {
+                            const newQty = parseInt(e.target.value, 10)
+
+                            if (newQty > product.stock) {
+                              alert(`Only ${product.stock} items in stock!`)
+                              return
+                            }
+
+                            if (newQty < 0) return
+
+                            setQuantity(product.id, newQty)
+                          }}
+                          className="w-12 text-center border rounded"
+                          min="0"
+                          max={product.stock}
+                        />
+                        <button
+                          onClick={() => updateQuantity(product.id, 1)}
+                          className="px-2 py-1 bg-gray-200 rounded hover:bg-gray-300"
+                        >
+                          <Plus className="w-4 h-4" />
+                        </button>
                       </div>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Cart and Checkout */}
-          <div className="bg-white rounded-lg shadow-lg p-6 border border-gray-200 h-fit">
-            <h2 className="text-2xl font-semibold text-gray-800 mb-6 flex items-center gap-2">
-              <ShoppingCart className="w-6 h-6" />
-              Cart Summary
-            </h2>
-
-            {Object.keys(cart).length === 0 ? (
-              <p className="text-gray-500 text-center py-8">
-                Your cart is empty
-              </p>
-            ) : (
-              <>
-                <div className="space-y-4 mb-6">
-                  {Object.entries(cart).map(([productId, quantity]) => {
-                    const product = products.find((p) => p.id === productId)
-                    if (!product) return null
-
-                    return (
-                      <div
-                        key={productId}
-                        className="flex justify-between items-center py-2 border-b border-gray-100"
-                      >
-                        <div>
-                          <p className="font-medium">{product.name}</p>
-                          <p className="text-sm text-gray-500">
-                            ${product.price} × {quantity}
-                          </p>
-                        </div>
-                        <p className="font-semibold">
-                          ${(product.price * quantity).toFixed(2)}
-                        </p>
-                      </div>
-                    )
-                  })}
-                </div>
-
-                <div className="space-y-4 mb-6">
-                  <div className="flex justify-between text-sm">
-                    <span>Base Total:</span>
-                    <span>${calculateTotal().toFixed(2)}</span>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span>Markup (20%):</span>
-                    <span>+${(calculateTotal() * 0.2).toFixed(2)}</span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <label className="text-sm">Discount (%):</label>
-                    <input
-                      type="number"
-                      min="0"
-                      max="100"
-                      value={discount}
-                      onChange={(e) =>
-                        setDiscount(
-                          Math.max(
-                            0,
-                            Math.min(100, parseInt(e.target.value) || 0)
-                          )
-                        )
-                      }
-                      className="w-16 text-center border border-gray-300 rounded px-2 py-1 text-sm"
-                    />
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span>Discount Amount:</span>
-                    <span>
-                      -${(calculateTotal() * 1.2 * (discount / 100)).toFixed(2)}
-                    </span>
-                  </div>
-                  <div className="border-t pt-4">
-                    <div className="flex justify-between text-lg font-bold">
-                      <span>Final Total:</span>
-                      <span className="text-green-600">
-                        ${calculateFinalPrice(calculateTotal()).toFixed(2)}
+                      <span className="text-sm text-gray-600">
+                        Final: ${calculateFinalPrice(product.price)}
                       </span>
                     </div>
                   </div>
-                </div>
+                )
+              })}
+            </div>
 
-                <button
-                  onClick={handlePurchase}
-                  disabled={purchasing}
-                  className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white font-semibold py-3 px-6 rounded-lg flex items-center justify-center gap-2 transition-colors"
-                >
-                  {purchasing ? (
-                    <>
-                      <Package className="w-5 h-5 animate-spin" />
-                      Processing...
-                    </>
-                  ) : (
-                    <>
-                      <DollarSign className="w-5 h-5" />
-                      Complete Purchase
-                    </>
-                  )}
-                </button>
-              </>
+            {/* Cart Summary */}
+            <div className="bg-white p-4 rounded-lg shadow-md max-w-xl mx-auto">
+              <h3 className="text-xl font-semibold mb-4 flex items-center gap-2">
+                <ShoppingCart className="w-5 h-5 text-blue-600" />
+                Cart Summary
+              </h3>
+              {Object.keys(cart).length === 0 ? (
+                <p className="text-gray-600">Your cart is empty.</p>
+              ) : (
+                <>
+                  <ul className="mb-4 text-gray-700 space-y-2">
+                    {Object.entries(cart).map(([productId, quantity]) => {
+                      const product = products.find((p) => p.id === productId)
+                      console.log(product)
+                      if (!product) return null
+                      return (
+                        <li key={productId} className="flex justify-between">
+                          <span>
+                            {product.name} × {quantity}
+                          </span>
+                          <span>${(product.markup * quantity).toFixed(2)}</span>
+                        </li>
+                      )
+                    })}
+                  </ul>
+                  <div className="flex justify-between mb-1 text-red-600">
+                    <span>Discount ({discount}%):</span>
+                    <span>– ${calculateDiscountValue().toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between font-bold text-gray-800 border-t pt-2">
+                    <span>Total:</span>
+                    <span>${calculateTotal().toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between items-center mt-4">
+                    <label className="flex items-center gap-2 text-sm text-gray-700">
+                      <DollarSign className="w-4 h-4 text-green-600" />
+                      Discount:
+                      <input
+                        type="number"
+                        value={discount}
+                        onChange={(e) => setDiscount(Number(e.target.value))}
+                        className="w-16 border rounded text-center"
+                      />
+                      %
+                    </label>
+                    <button
+                      onClick={handlePurchase}
+                      disabled={purchasing}
+                      className={`px-4 py-2 text-white rounded ${
+                        purchasing
+                          ? "bg-gray-400"
+                          : "bg-blue-600 hover:bg-blue-700"
+                      }`}
+                    >
+                      {purchasing ? "Processing..." : "Confirm Purchase"}
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* Last Purchase Info */}
+            {lastPurchase && (
+              <div className="mt-8 bg-green-50 p-4 rounded-lg shadow-sm max-w-xl mx-auto border border-green-200">
+                <h4 className="font-semibold text-green-700 mb-2 flex items-center gap-2">
+                  <CheckCircle className="w-5 h-5 text-green-600" />
+                  Last Purchase Summary
+                </h4>
+                <p className="text-sm text-gray-600 mb-2">
+                  Time: <strong>{lastPurchase.timestamp}</strong>
+                </p>
+                <ul className="text-sm text-gray-700 space-y-1">
+                  {lastPurchase.items.map((item, idx) => (
+                    <li key={idx}>
+                      {item.productName} × {item.quantity} = ${item.finalPrice}
+                    </li>
+                  ))}
+                </ul>
+                <div className="text-right font-bold mt-2 text-green-800">
+                  Total: ${lastPurchase.totalAmount}
+                </div>
+              </div>
             )}
-          </div>
-        </div>
+          </>
+        )}
       </div>
     </div>
   )
